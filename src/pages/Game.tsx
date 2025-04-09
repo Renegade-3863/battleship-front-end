@@ -48,6 +48,61 @@ const generateDemoOpponentBoard = (): CellState[][] => {
   return board;
 };
 
+// Function to find and mark all ship cells as sunk
+const findAndMarkShipAsSunk = (board: CellState[][], hitRow: number, hitCol: number): CellState[][] => {
+  const newBoard = [...board.map(row => [...row])];
+  newBoard[hitRow][hitCol] = CellState.SUNK;
+  
+  // First, check if this is part of a horizontal ship
+  let startCol = hitCol;
+  let endCol = hitCol;
+  
+  // Look left for connected ship parts
+  while (startCol > 0 && (newBoard[hitRow][startCol - 1] === CellState.HIT || 
+                         newBoard[hitRow][startCol - 1] === CellState.SHIP)) {
+    startCol--;
+  }
+  
+  // Look right for connected ship parts
+  while (endCol < 9 && (newBoard[hitRow][endCol + 1] === CellState.HIT || 
+                        newBoard[hitRow][endCol + 1] === CellState.SHIP)) {
+    endCol++;
+  }
+  
+  // If we found a horizontal ship with length > 1, mark all cells as sunk
+  if (endCol - startCol > 0) {
+    for (let col = startCol; col <= endCol; col++) {
+      newBoard[hitRow][col] = CellState.SUNK;
+    }
+    return newBoard;
+  }
+  
+  // Otherwise, check if this is part of a vertical ship
+  let startRow = hitRow;
+  let endRow = hitRow;
+  
+  // Look up for connected ship parts
+  while (startRow > 0 && (newBoard[startRow - 1][hitCol] === CellState.HIT || 
+                         newBoard[startRow - 1][hitCol] === CellState.SHIP)) {
+    startRow--;
+  }
+  
+  // Look down for connected ship parts
+  while (endRow < 9 && (newBoard[endRow + 1][hitCol] === CellState.HIT || 
+                        newBoard[endRow + 1][hitCol] === CellState.SHIP)) {
+    endRow++;
+  }
+  
+  // If we found a vertical ship with length > 1, mark all cells as sunk
+  if (endRow - startRow > 0) {
+    for (let row = startRow; row <= endRow; row++) {
+      newBoard[row][hitCol] = CellState.SUNK;
+    }
+  }
+  
+  return newBoard;
+};
+
 const Game = () => {
   const navigate = useNavigate();
   const { gameId } = useParams<{ gameId: string }>();
@@ -150,13 +205,26 @@ const Game = () => {
           console.log('Turn change reason:', data.reason);
         }
         
-        // Special case: if reason is "hit", player should keep their turn
-        if (data.reason === 'hit' && playerTurn === true) {
-          console.log('Maintaining player turn after hit');
-          // Don't change turn
+        // Special cases for hit-related turn updates
+        if (data.reason === 'hit' || data.reason === 'opponent_hit') {
+          console.log(`Hit detected! Turn ${data.reason === 'hit' ? 'maintained' : 'given to opponent'}`);
+          // This is a special update after a hit, maintain the current turn state
+          // The move_result handler has already updated the board with the hit
+          if (isAnimating) {
+            // Only update the turn if we need to (when we're the one who got hit)
+            if (data.reason === 'opponent_hit' && playerTurn === true) {
+              setPendingTurnUpdate(false);
+            }
+          } else {
+            // If no animation is in progress, update immediately
+            if (data.reason === 'opponent_hit') {
+              setPlayerTurn(false);
+            }
+          }
           return;
         }
         
+        // For normal turn updates (misses)
         if (isAnimating) {
           // If an animation is playing, delay the turn update
           console.log('Animation in progress, delaying turn update');
@@ -181,15 +249,23 @@ const Game = () => {
         
         if (isPlayerBoard) {
           // Update player board when opponent attacks
-          const newPlayerBoard = [...playerBoard.map(rowArray => [...rowArray])];
-          
-          if (result === 'hit' || result === 'sunk') {
-            newPlayerBoard[row][col] = result === 'sunk' ? CellState.SUNK : CellState.HIT;
-          } else {
-            newPlayerBoard[row][col] = CellState.MISS;
-          }
-          
-          setPlayerBoard(newPlayerBoard);
+          setPlayerBoard(prevBoard => {
+            let newPlayerBoard = [...prevBoard.map(rowArray => [...rowArray])];
+            
+            if (result === 'hit') {
+              newPlayerBoard[row][col] = CellState.HIT;
+              console.log(`Updated player board at [${row},${col}] to HIT (3)`);
+            } else if (result === 'sunk') {
+              // Find and mark all cells of the ship as sunk
+              newPlayerBoard = findAndMarkShipAsSunk(newPlayerBoard, row, col);
+              console.log(`Ship sunk at [${row},${col}], marked all connected cells as SUNK (5)`);
+            } else {
+              newPlayerBoard[row][col] = CellState.MISS;
+              console.log(`Updated player board at [${row},${col}] to MISS (4)`);
+            }
+            
+            return newPlayerBoard;
+          });
           
           // If all of player's ships are sunk, the game is over
           if (gameOver) {
@@ -199,26 +275,45 @@ const Game = () => {
           }
         } else {
           // Update opponent board when player attacks
-          const newOpponentBoard = [...opponentBoard.map(rowArray => [...rowArray])];
-          
-          if (result === 'hit' || result === 'sunk') {
-            newOpponentBoard[row][col] = result === 'sunk' ? CellState.SUNK : CellState.HIT;
+          setOpponentBoard(prevBoard => {
+            let newOpponentBoard = [...prevBoard.map(rowArray => [...rowArray])];
             
-            // Player got a hit, so they should keep their turn unless server explicitly says otherwise
-            if (keepTurn !== false) {
-              console.log('You got a hit! You get another turn!');
-              // Show notification
-              setShowExtraTurnNotice(true);
-              // Hide after 3 seconds
-              setTimeout(() => {
-                setShowExtraTurnNotice(false);
-              }, 3000);
+            if (result === 'hit') {
+              newOpponentBoard[row][col] = CellState.HIT;
+              console.log(`Updated opponent board at [${row},${col}] to HIT (3)`);
+            } else if (result === 'sunk') {
+              // Find and mark all cells of the ship as sunk
+              newOpponentBoard = findAndMarkShipAsSunk(newOpponentBoard, row, col);
+              console.log(`Ship sunk at [${row},${col}], marked all connected cells as SUNK (5)`);
+            } else {
+              newOpponentBoard[row][col] = CellState.MISS;
+              console.log(`Updated opponent board at [${row},${col}] to MISS (4)`);
             }
-          } else {
-            newOpponentBoard[row][col] = CellState.MISS;
-          }
+            
+            // Player got a hit, they should keep their turn
+            if (result === 'hit' || result === 'sunk') {
+              if (keepTurn) {
+                console.log('You got a hit! You get another turn!');
+                // Show notification
+                setShowExtraTurnNotice(true);
+                // Hide after 3 seconds
+                setTimeout(() => {
+                  setShowExtraTurnNotice(false);
+                }, 3000);
+                
+                // Ensure player's turn is maintained
+                setPlayerTurn(true);
+              }
+            } else {
+              // Miss doesn't change turn - that will come via turn_update
+              console.log('Miss - turn will be switched via turn_update event');
+            }
+            
+            return newOpponentBoard;
+          });
           
-          setOpponentBoard(newOpponentBoard);
+          // Start animation when player makes a move
+          setIsAnimating(true);
           
           // If all opponent's ships are sunk, the game is over
           if (gameOver) {
@@ -342,6 +437,10 @@ const Game = () => {
   
   // Handle player attack on opponent's board
   const handleAttackOpponent = (row: number, col: number) => {
+    console.log(`Attack attempt at [${row},${col}]`);
+    console.log(`Current conditions: gameState=${GameState[gameState]}, playerTurn=${playerTurn}, isAnimating=${isAnimating}`);
+    console.log(`Cell state: ${CellState[opponentBoard[row][col]]}`);
+    
     if (
       gameState !== GameState.PLAYING || 
       !playerTurn || 
@@ -350,9 +449,11 @@ const Game = () => {
       opponentBoard[row][col] === CellState.SUNK ||
       isAnimating // Prevent shooting while animation is playing
     ) {
+      console.log('Attack rejected due to conditions not met');
       return;
     }
     
+    console.log('Attack approved! Setting animation and sending to server');
     // Start animation
     setIsAnimating(true);
     
@@ -363,7 +464,16 @@ const Game = () => {
   // Handle animation completion
   const handleAnimationComplete = (row: number, col: number, type: 'hit' | 'miss') => {
     console.log('Animation completed for shot at', row, col, 'of type', type);
+    
+    // Animation is now finished
     setIsAnimating(false);
+    
+    // Always apply any pending turn update
+    if (pendingTurnUpdate !== null) {
+      console.log('Applying delayed turn update after animation:', pendingTurnUpdate);
+      setPlayerTurn(pendingTurnUpdate);
+      setPendingTurnUpdate(null);
+    }
   };
   
   // Handle leaving the game
@@ -531,7 +641,7 @@ const Game = () => {
                       boardState={opponentBoard}
                       onCellClick={handleAttackOpponent}
                       onAnimationComplete={handleAnimationComplete}
-                      isActive={playerTurn && !isAnimating} 
+                      isActive={playerTurn}
                     />
                   </Box>
                 </Fade>

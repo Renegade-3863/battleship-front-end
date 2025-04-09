@@ -147,27 +147,31 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
   // Track board state changes to trigger animations
   useEffect(() => {
     if (externalBoardState && p5Ref.current) {
+      console.log(`Board state updated (${isPlayerBoard ? 'Player' : 'Opponent'} board)`);
+      
       // Compare previous and current board state to find new hits/misses
       for (let row = 0; row < size; row++) {
         for (let col = 0; col < size; col++) {
           const prevState = prevBoardState[row][col];
           const newState = externalBoardState[row][col];
           
-          // If cell state changed to hit or miss, add an animation
+          // If cell state changed to hit, miss, or sunk, add an animation
           if ((prevState === CellState.EMPTY || prevState === CellState.SHIP) && 
-              (newState === CellState.HIT || newState === CellState.MISS)) {
+              (newState === CellState.HIT || newState === CellState.MISS || newState === CellState.SUNK)) {
+            console.log(`Cell at [${row},${col}] changed from ${prevState} to ${newState} - adding animation`);
+            
             const newAnimation: AnimationEffect = {
               row,
               col,
-              type: newState === CellState.HIT ? 'hit' : 'miss',
+              type: (newState === CellState.HIT || newState === CellState.SUNK) ? 'hit' : 'miss',
               startTime: p5Ref.current.millis(),
-              duration: 1000 // 1 second animation
+              duration: 2000 // 2 second animation
             };
             
             setActiveAnimations(prev => [...prev, newAnimation]);
             
             // Play sound effect
-            if (newState === CellState.HIT && soundsRef.current.hit) {
+            if ((newState === CellState.HIT || newState === CellState.SUNK) && soundsRef.current.hit) {
               soundsRef.current.hit.play();
             } else if (newState === CellState.MISS && soundsRef.current.miss) {
               soundsRef.current.miss.play();
@@ -176,15 +180,21 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
         }
       }
       
+      // Always update prevBoardState when externalBoardState changes
       setPrevBoardState(externalBoardState);
+      
+      // Also update local boardState for ship placement logic
+      if (isPlayerBoard && !editable) {
+        setBoardState(externalBoardState);
+      }
     }
-  }, [externalBoardState]);
+  }, [externalBoardState, size, isPlayerBoard, editable]);
   
   // Update board state based on ship positions
   const updateBoardState = () => {
     const newBoardState = Array(size)
       .fill(null)
-      .map(() => Array(size).fill(CellState.EMPTY));
+      .map(() => Array(size).fill(CellState.EMPTY)); // Now using EMPTY = 0
     
     ships.forEach(ship => {
       if (ship.position) {
@@ -194,11 +204,11 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
         for (let i = 0; i < shipSize; i++) {
           if (orientation === Orientation.HORIZONTAL) {
             if (col + i < size) {
-              newBoardState[row][col + i] = CellState.SHIP;
+              newBoardState[row][col + i] = CellState.SHIP; // Now using SHIP = 2
             }
           } else {
             if (row + i < size) {
-              newBoardState[row + i][col] = CellState.SHIP;
+              newBoardState[row + i][col] = CellState.SHIP; // Now using SHIP = 2
             }
           }
         }
@@ -547,166 +557,136 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
   const drawBoard = (p5: p5Types) => {
     const gridStartX = 40; // Start after row headers
     const gridStartY = 40; // Start after column headers
+    const gridSize = cellSize * size;
+    const cellPadding = 2;
     
+    // Draw board background
+    p5.noStroke();
+    p5.fill(0, 20, 40);
+    p5.rect(
+      gridStartX - cellPadding, 
+      gridStartY - cellPadding,
+      gridSize + cellPadding * 2,
+      gridSize + cellPadding * 2,
+      5
+    );
+    
+    // Draw cells
     for (let row = 0; row < size; row++) {
       for (let col = 0; col < size; col++) {
         const x = gridStartX + col * cellSize;
         const y = gridStartY + row * cellSize;
-        const cellState = externalBoardState ? externalBoardState[row][col] : boardState[row][col];
         
         // Cell background
-        p5.fill(0, 20, 40, 200);
-        p5.stroke(72, 145, 255, 64);
-        p5.rect(x, y, cellSize, cellSize);
+        p5.stroke(0, 60, 120, 40);
+        p5.strokeWeight(1);
+        p5.fill(0, 40, 80, 120);
+        p5.rect(x, y, cellSize, cellSize, 2);
+        
+        // Always use externalBoardState when available for both player and opponent board
+        // This ensures hit/miss markers persist on both boards
+        const displayState = externalBoardState ? externalBoardState[row][col] : boardState[row][col];
         
         // Cell content based on state
-        switch (cellState) {
-          case CellState.SHIP:
+        switch (displayState) {
+          case CellState.SHIP: // 2
             if (isPlayerBoard) {
               p5.fill(66, 133, 244);
               p5.noStroke();
               p5.rect(x + 2, y + 2, cellSize - 4, cellSize - 4, 2);
             }
             break;
-          case CellState.HIT:
-            // Basic hit marker without animation
+          case CellState.HIT: // 3
+            // Hit marker (persistent red circle)
             p5.fill(211, 47, 47);
             p5.noStroke();
             p5.ellipse(x + cellSize / 2, y + cellSize / 2, cellSize * 0.7);
             break;
-          case CellState.MISS:
-            // Basic miss marker without animation
+          case CellState.MISS: // 4
+            // Miss marker (persistent white circle)
             p5.fill(224, 224, 224);
             p5.noStroke();
             p5.ellipse(x + cellSize / 2, y + cellSize / 2, cellSize * 0.7);
             break;
-          case CellState.SUNK:
+          case CellState.SUNK: // 5
+            // Draw a sunk ship with X marks
             p5.fill(62, 39, 35);
             p5.noStroke();
             p5.rect(x + 2, y + 2, cellSize - 4, cellSize - 4);
             
-            // Diagonal lines
-            p5.stroke(93, 64, 55);
+            // Diagonal lines (X mark)
+            p5.stroke(211, 47, 47);
             p5.strokeWeight(2);
             p5.line(x + 5, y + 5, x + cellSize - 5, y + cellSize - 5);
             p5.line(x + cellSize - 5, y + 5, x + 5, y + cellSize - 5);
             p5.strokeWeight(1);
             break;
-        }
-        
-        // Hover effect
-        if (hoverCell && hoverCell.row === row && hoverCell.col === col && isActive && (!isPlayerBoard || editable)) {
-          p5.fill(72, 145, 255, 100);
-          p5.noStroke();
-          p5.rect(x, y, cellSize, cellSize);
+          // CellState.EMPTY (0) and other cases are already handled by default fill
         }
       }
     }
+    
+    // Highlight target cell
+    if (hoverCell && !isPlayerBoard && !editable && !isDragging && isActive) {
+      const x = gridStartX + hoverCell.col * cellSize;
+      const y = gridStartY + hoverCell.row * cellSize;
+      
+      p5.noFill();
+      p5.stroke(255, 255, 255, 150);
+      p5.strokeWeight(2);
+      p5.rect(x, y, cellSize, cellSize, 2);
+    }
   };
   
-  // Draw animations for hits and misses
+  // Draw animations (splashes, hits)
   const drawAnimations = (p5: p5Types) => {
+    const currentTime = p5.millis();
     const gridStartX = 40; // Start after row headers
     const gridStartY = 40; // Start after column headers
-    const currentTime = p5.millis();
     
-    // Filter out completed animations
-    const activeAnims = activeAnimations.filter(anim => 
-      currentTime - anim.startTime < anim.duration
-    );
-    
-    // Update state if animations were removed
-    if (activeAnims.length < activeAnimations.length) {
-      setActiveAnimations(activeAnims);
+    // Debug log active animations
+    if (activeAnimations.length > 0) {
+      console.log(`Active animations: ${activeAnimations.length}`);
     }
     
-    // Draw each active animation
-    activeAnims.forEach(anim => {
-      const x = gridStartX + anim.col * cellSize + cellSize / 2;
-      const y = gridStartY + anim.row * cellSize + cellSize / 2;
-      const progress = (currentTime - anim.startTime) / anim.duration;
+    // Filter out completed animations
+    const remainingAnimations = activeAnimations.filter(anim => {
+      const animProgress = (currentTime - anim.startTime) / anim.duration;
+      return animProgress < 1;
+    });
+    
+    // Check if any animations have completed this frame
+    if (remainingAnimations.length < activeAnimations.length) {
+      // Get completed animations
+      const completedAnimations = activeAnimations.filter(anim => {
+        const animProgress = (currentTime - anim.startTime) / anim.duration;
+        return animProgress >= 1;
+      });
+      
+      // Call completion callback for each completed animation
+      completedAnimations.forEach(anim => {
+        console.log(`Animation completed for ${anim.type} at [${anim.row},${anim.col}]`);
+        if (onAnimationComplete) {
+          onAnimationComplete(anim.row, anim.col, anim.type);
+        }
+      });
+      
+      // Update active animations
+      setActiveAnimations(remainingAnimations);
+    }
+    
+    // Draw remaining animations
+    remainingAnimations.forEach(anim => {
+      const animProgress = (currentTime - anim.startTime) / anim.duration;
+      const x = gridStartX + anim.col * cellSize;
+      const y = gridStartY + anim.row * cellSize;
       
       if (anim.type === 'hit') {
-        // Explosion animation for hits - now longer duration
-        const maxRadius = cellSize * 1.5; // Larger explosion
-        const innerRadius = maxRadius * progress;
-        const outerRadius = innerRadius * 0.7;
-        
-        // Glow effect gets stronger in the middle of the animation
-        const glowIntensity = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
-        p5.drawingContext.shadowBlur = 20 * glowIntensity;
-        p5.drawingContext.shadowColor = 'rgba(255, 0, 0, 0.8)';
-        
-        // Outer explosion ring
-        p5.noFill();
-        p5.stroke(255, 100, 100, 255 * (1 - progress));
-        p5.strokeWeight(3);
-        p5.ellipse(x, y, innerRadius);
-        
-        // Inner explosion
-        p5.fill(255, 0, 0, 255 * (1 - progress));
-        p5.noStroke();
-        p5.ellipse(x, y, outerRadius);
-        
-        // Add reveal effect in the second half of the animation
-        if (progress > 0.5) {
-          const revealProgress = (progress - 0.5) * 2; // 0 to 1 during second half
-          p5.fill(211, 47, 47, 255 * revealProgress);
-          p5.ellipse(x, y, cellSize * 0.7);
-        }
-        
-        // Explosion particles
-        const particleCount = 12; // More particles
-        const particleSize = cellSize * 0.15;
-        p5.fill(255, 200, 0, 255 * (1 - progress));
-        
-        for (let i = 0; i < particleCount; i++) {
-          const angle = (i / particleCount) * p5.TWO_PI;
-          const distance = innerRadius * 0.6 * progress;
-          const particleX = x + p5.cos(angle) * distance;
-          const particleY = y + p5.sin(angle) * distance;
-          p5.ellipse(particleX, particleY, particleSize * (1 - progress));
-        }
-        
-        p5.drawingContext.shadowBlur = 0;
+        // Draw hit animation
+        drawHitAnimation(p5, x, y, cellSize, animProgress);
       } else {
-        // Splash animation for misses - now longer duration
-        const maxRadius = cellSize * 1.2; // Larger splash
-        const splashRadius = maxRadius * progress;
-        
-        // Splash effect gets stronger in the middle of the animation
-        const splashIntensity = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
-        
-        // Main splash circle
-        p5.noFill();
-        p5.stroke(255, 255, 255, 255 * splashIntensity);
-        p5.strokeWeight(2);
-        p5.ellipse(x, y, splashRadius);
-        
-        // Inner splash circles
-        p5.stroke(200, 225, 255, 200 * splashIntensity);
-        p5.ellipse(x, y, splashRadius * 0.7);
-        p5.ellipse(x, y, splashRadius * 0.4);
-        
-        // Add reveal effect in the second half of the animation
-        if (progress > 0.5) {
-          const revealProgress = (progress - 0.5) * 2; // 0 to 1 during second half
-          p5.fill(224, 224, 224, 255 * revealProgress);
-          p5.noStroke();
-          p5.ellipse(x, y, cellSize * 0.7);
-        }
-        
-        // Water droplets with more upward motion
-        const dropletCount = 8; // More droplets
-        p5.fill(200, 225, 255, 200 * splashIntensity);
-        
-        for (let i = 0; i < dropletCount; i++) {
-          const angle = (i / dropletCount) * p5.TWO_PI;
-          const distance = splashRadius * 0.6;
-          const dropletX = x + p5.cos(angle) * distance;
-          const dropletY = y + p5.sin(angle) * distance - (cellSize * 0.5 * progress); // More vertical movement
-          p5.ellipse(dropletX, dropletY, cellSize * 0.15 * (1 - progress));
-        }
+        // Draw miss animation
+        drawMissAnimation(p5, x, y, cellSize, animProgress);
       }
     });
   };
@@ -844,7 +824,9 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
   const drawTargetingCursor = (p5: p5Types) => {
     if (!isPlayerBoard && isActive && hoverCell) {
       const { row, col } = hoverCell;
-      const cellState = externalBoardState?.[row]?.[col] || CellState.EMPTY;
+      
+      // Always use externalBoardState for checking opponent's board when showing targeting cursor
+      const cellState = externalBoardState ? externalBoardState[row][col] : CellState.EMPTY;
       const hasActiveAnimation = activeAnimations.some(
         anim => anim.row === row && anim.col === col
       );
@@ -904,33 +886,13 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
     }
   };
   
-  // Add a new animation effect when player fires
-  const addShotAnimation = (row: number, col: number, type: 'hit' | 'miss') => {
-    if (p5Ref.current) {
-      const animationDuration = 2000; // Increase to 2 seconds
-      
-      const newAnimation: AnimationEffect = {
-        row,
-        col,
-        type,
-        startTime: p5Ref.current.millis(),
-        duration: animationDuration
-      };
-      
-      setActiveAnimations(prev => [...prev, newAnimation]);
-      
-      // If we have an animation complete callback, call it after the animation duration
-      if (onAnimationComplete) {
-        setTimeout(() => {
-          onAnimationComplete(row, col, type);
-        }, animationDuration);
-      }
-    }
-  };
-  
   // Mouse pressed handler
   const mousePressed = (p5: p5Types) => {
-    if (!isActive) return;
+    console.log('Mouse pressed on canvas, isActive:', isActive);
+    if (!isActive) {
+      console.log('Board not active, ignoring click');
+      return;
+    }
     
     const mouseX = p5.mouseX;
     const mouseY = p5.mouseY;
@@ -940,6 +902,9 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
         mouseY >= 40 && mouseY < 40 + size * cellSize) {
       const gridX = Math.floor((mouseX - 40) / cellSize);
       const gridY = Math.floor((mouseY - 40) / cellSize);
+      
+      console.log(`Click detected at grid position [${gridY},${gridX}]`);
+      console.log(`Board type: ${isPlayerBoard ? 'Player' : 'Opponent'}, Editable: ${editable}`);
       
       // Handle cell click
       if (isPlayerBoard && editable && !isReady) {
@@ -971,18 +936,26 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
           });
         }
       } else if (!isPlayerBoard && onCellClick) {
-        // Don't fire if cell already has a state or an animation is active
-        const cellState = externalBoardState?.[gridY]?.[gridX] || CellState.EMPTY;
+        console.log('Processing attack click on opponent board');
+        
+        // Get the current cell state - use externalBoardState for opponent board
+        const cellState = externalBoardState ? externalBoardState[gridY][gridX] : boardState[gridY][gridX];
+        console.log(`Cell state at [${gridY},${gridX}]:`, cellState, CellState[cellState]);
+        
         const hasActiveAnimation = activeAnimations.some(
           anim => anim.row === gridY && anim.col === gridX
         );
         
         if (cellState === CellState.EMPTY && !hasActiveAnimation) {
-          // Create a "pending" animation that will be confirmed by game state
-          addShotAnimation(gridY, gridX, 'miss'); // Default to miss, will be updated by board state change
+          console.log('Valid cell for attack, calling onCellClick');
           onCellClick(gridY, gridX);
+        } else {
+          console.log('Invalid cell for attack:', 
+            cellState !== CellState.EMPTY ? 'Cell already attacked' : 'Animation in progress');
         }
       }
+    } else {
+      console.log('Click outside grid bounds');
     }
   };
   
@@ -1084,6 +1057,100 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
       onReady();
     } else {
       console.log('Not calling onReady callback due to conditions not met');
+    }
+  };
+  
+  // Draw hit animation
+  const drawHitAnimation = (p5: p5Types, x: number, y: number, cellSize: number, progress: number) => {
+    const centerX = x + cellSize / 2;
+    const centerY = y + cellSize / 2;
+    
+    // Explosion animation for hits
+    const maxRadius = cellSize * 1.5; // Larger explosion
+    const innerRadius = maxRadius * progress;
+    const outerRadius = innerRadius * 0.7;
+    
+    // Glow effect gets stronger in the middle of the animation
+    const glowIntensity = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
+    p5.drawingContext.shadowBlur = 20 * glowIntensity;
+    p5.drawingContext.shadowColor = 'rgba(255, 0, 0, 0.8)';
+    
+    // Outer explosion ring
+    p5.noFill();
+    p5.stroke(255, 100, 100, 255 * (1 - progress));
+    p5.strokeWeight(3);
+    p5.ellipse(centerX, centerY, innerRadius);
+    
+    // Inner explosion
+    p5.fill(255, 0, 0, 255 * (1 - progress));
+    p5.noStroke();
+    p5.ellipse(centerX, centerY, outerRadius);
+    
+    // Draw the final hit marker immediately for better feedback
+    if (progress > 0.3) { // Start showing the hit marker early in the animation
+      const fadeInProgress = progress < 0.7 ? (progress - 0.3) / 0.4 : 1;
+      p5.fill(211, 47, 47, 255 * fadeInProgress);
+      p5.noStroke();
+      p5.ellipse(centerX, centerY, cellSize * 0.7);
+    }
+    
+    // Explosion particles
+    const particleCount = 12;
+    const particleSize = cellSize * 0.15;
+    p5.fill(255, 200, 0, 255 * (1 - progress));
+    
+    for (let i = 0; i < particleCount; i++) {
+      const angle = (i / particleCount) * p5.TWO_PI;
+      const distance = innerRadius * 0.6 * progress;
+      const particleX = centerX + p5.cos(angle) * distance;
+      const particleY = centerY + p5.sin(angle) * distance;
+      p5.ellipse(particleX, particleY, particleSize * (1 - progress));
+    }
+    
+    p5.drawingContext.shadowBlur = 0;
+  };
+  
+  // Draw miss animation
+  const drawMissAnimation = (p5: p5Types, x: number, y: number, cellSize: number, progress: number) => {
+    const centerX = x + cellSize / 2;
+    const centerY = y + cellSize / 2;
+    
+    // Splash animation for misses
+    const maxRadius = cellSize * 1.2;
+    const splashRadius = maxRadius * progress;
+    
+    // Splash effect gets stronger in the middle of the animation
+    const splashIntensity = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
+    
+    // Main splash circle
+    p5.noFill();
+    p5.stroke(255, 255, 255, 255 * splashIntensity);
+    p5.strokeWeight(2);
+    p5.ellipse(centerX, centerY, splashRadius);
+    
+    // Inner splash circles
+    p5.stroke(200, 225, 255, 200 * splashIntensity);
+    p5.ellipse(centerX, centerY, splashRadius * 0.7);
+    p5.ellipse(centerX, centerY, splashRadius * 0.4);
+    
+    // Draw the final miss marker earlier in the animation
+    if (progress > 0.5) {
+      const fadeInProgress = progress < 0.9 ? (progress - 0.5) / 0.4 : 1;
+      p5.fill(224, 224, 224, 255 * fadeInProgress);
+      p5.noStroke();
+      p5.ellipse(centerX, centerY, cellSize * 0.7);
+    }
+    
+    // Water droplets
+    const dropletCount = 8;
+    p5.fill(200, 225, 255, 200 * splashIntensity);
+    
+    for (let i = 0; i < dropletCount; i++) {
+      const angle = (i / dropletCount) * p5.TWO_PI;
+      const distance = splashRadius * 0.6;
+      const dropletX = centerX + p5.cos(angle) * distance;
+      const dropletY = centerY + p5.sin(angle) * distance - (cellSize * 0.5 * progress);
+      p5.ellipse(dropletX, dropletY, cellSize * 0.15 * (1 - progress));
     }
   };
   

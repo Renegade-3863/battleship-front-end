@@ -142,6 +142,23 @@ class SocketService {
   // Submit ship placements
   submitShips(ships: Ship[], board: CellState[][]) {
     console.log('Submitting ships to server:', ships);
+    console.log('Board state type checks:');
+    // Log a sample cell to verify we're using numeric values
+    if (board.length > 0 && board[0].length > 0) {
+      console.log('Sample empty cell value:', board[0][0], 'is type:', typeof board[0][0]);
+      
+      // Find a ship cell to check
+      let shipCellFound = false;
+      for (let row = 0; row < board.length && !shipCellFound; row++) {
+        for (let col = 0; col < board[0].length && !shipCellFound; col++) {
+          if (board[row][col] === CellState.SHIP) {
+            console.log('Sample ship cell value:', board[row][col], 'is type:', typeof board[row][col]);
+            shipCellFound = true;
+          }
+        }
+      }
+    }
+    
     if (this.socket) {
       console.log(`Socket connected: ${this.socket.connected}, Socket ID: ${this.socket.id}`);
       console.log('About to emit submit_ships event to server');

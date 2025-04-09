@@ -3,11 +3,12 @@ import { Box, Typography, Paper } from '@mui/material';
 
 // Define cell states
 export enum CellState {
-  EMPTY = 'empty',
-  SHIP = 'ship',
-  HIT = 'hit',
-  MISS = 'miss',
-  SUNK = 'sunk'
+  EMPTY = 0,
+  NEARBY = 1,
+  SHIP = 2,
+  HIT = 3,
+  MISS = 4,
+  SUNK = 5
 }
 
 // Define props for the component
