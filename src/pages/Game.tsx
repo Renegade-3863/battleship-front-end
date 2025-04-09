@@ -16,7 +16,8 @@ import {
   Fade
 } from '@mui/material';
 import { useParams, useNavigate } from 'react-router-dom';
-import GameBoard, { CellState } from '../components/game/GameBoard';
+import { CellState } from '../components/game/GameBoard';
+import CanvasGameBoard from '../components/game/CanvasGameBoard';
 import GameChat from '../components/game/GameChat';
 import ShipPlacementBoard from '../components/game/ShipPlacementBoard';
 import { getDefaultShipPlacement, Ship } from '../models/Ship';
@@ -64,6 +65,10 @@ const Game = () => {
   const [opponentName, setOpponentName] = useState('Waiting for opponent...');
   const [isOpponentConnected, setIsOpponentConnected] = useState(true);
   
+  // Animation state
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [pendingTurnUpdate, setPendingTurnUpdate] = useState<boolean | null>(null);
+  
   // Board states
   const [playerBoard, setPlayerBoard] = useState<CellState[][]>(
     Array(10).fill(null).map(() => Array(10).fill(CellState.EMPTY))
@@ -75,12 +80,19 @@ const Game = () => {
   // Ship placement state
   const [ships, setShips] = useState<Ship[]>(getDefaultShipPlacement());
   
+  // Add state for extra turn notification
+  const [showExtraTurnNotice, setShowExtraTurnNotice] = useState(false);
+  
   // Connect to socket on mount
   useEffect(() => {
     console.log('Game component mounted, gameId:', gameId);
     
+    // First, ensure we're connected to the socket
     if (!socketService.isConnected()) {
+      console.log('Socket not connected, connecting now...');
       socketService.connect();
+    } else {
+      console.log('Socket already connected');
     }
     
     // If we have a gameId from the URL, we should join that game
@@ -97,83 +109,167 @@ const Game = () => {
       });
     }
     
-    // Listen for opponent data
-    socketService.on('opponent_data', (data: { name: string }) => {
-      console.log('Received opponent data:', data);
-      setOpponentName(data.name);
-      setIsOpponentConnected(true);
-    });
+    // Set up all socket event listeners
+    const setupSocketListeners = () => {
+      console.log('Setting up all socket listeners');
     
-    // Listen for opponent ready
-    socketService.on('opponent_ready', () => {
-      console.log('Opponent is ready');
-      setOpponentReady(true);
-    });
-    
-    // Listen for game started event
-    socketService.onGameStarted(() => {
-      console.log('Game started event received, changing to PLAYING state');
-      setGameState(GameState.PLAYING);
-    });
-    
-    // Listen for turn update
-    socketService.on('turn_update', (data: { playerTurn: boolean }) => {
-      console.log('Turn update received:', data);
-      setPlayerTurn(data.playerTurn);
-    });
-    
-    // Listen for move result
-    socketService.on('move_result', (data: {
-      row: number;
-      col: number;
-      result: 'hit' | 'miss' | 'sunk';
-      isPlayerBoard: boolean;
-    }) => {
-      const { row, col, result, isPlayerBoard } = data;
+      // Listen for opponent data
+      socketService.on('opponent_data', (data: { name: string }) => {
+        console.log('Received opponent data:', data);
+        setOpponentName(data.name);
+        setIsOpponentConnected(true);
+      });
       
-      if (isPlayerBoard) {
-        // Update player board when opponent attacks
-        const newPlayerBoard = [...playerBoard.map(rowArray => [...rowArray])];
+      // Listen for opponent ready
+      socketService.on('opponent_ready', () => {
+        console.log('Opponent is ready');
+        setOpponentReady(true);
         
-        if (result === 'hit' || result === 'sunk') {
-          newPlayerBoard[row][col] = result === 'sunk' ? CellState.SUNK : CellState.HIT;
-        } else {
-          newPlayerBoard[row][col] = CellState.MISS;
+        // Debug check if both players are ready
+        if (playerReady) {
+          console.log('Both players are ready! Waiting for server to start game...');
+        }
+      });
+      
+      // Listen for game started event - using dedicated handler
+      socketService.onGameStarted(() => {
+        console.log('Game started event received in Game.tsx, changing to PLAYING state');
+        console.log('Current game state before change:', GameState[gameState]);
+        
+        // Force state update to PLAYING
+        setGameState(GameState.PLAYING);
+        
+        console.log('Game state update triggered');
+      });
+      
+      // Listen for turn update
+      socketService.on('turn_update', (data: { playerTurn: boolean; reason?: string }) => {
+        console.log('Turn update received:', data);
+        
+        if (data.reason) {
+          console.log('Turn change reason:', data.reason);
         }
         
-        setPlayerBoard(newPlayerBoard);
-      } else {
-        // Update opponent board when player attacks
-        const newOpponentBoard = [...opponentBoard.map(rowArray => [...rowArray])];
-        
-        if (result === 'hit' || result === 'sunk') {
-          newOpponentBoard[row][col] = result === 'sunk' ? CellState.SUNK : CellState.HIT;
-        } else {
-          newOpponentBoard[row][col] = CellState.MISS;
+        // Special case: if reason is "hit", player should keep their turn
+        if (data.reason === 'hit' && playerTurn === true) {
+          console.log('Maintaining player turn after hit');
+          // Don't change turn
+          return;
         }
         
-        setOpponentBoard(newOpponentBoard);
-      }
-    });
+        if (isAnimating) {
+          // If an animation is playing, delay the turn update
+          console.log('Animation in progress, delaying turn update');
+          setPendingTurnUpdate(data.playerTurn);
+        } else {
+          // Otherwise update immediately
+          setPlayerTurn(data.playerTurn);
+        }
+      });
+      
+      // Listen for move result
+      socketService.on('move_result', (data: {
+        row: number;
+        col: number;
+        result: 'hit' | 'miss' | 'sunk';
+        isPlayerBoard: boolean;
+        keepTurn?: boolean;
+        gameOver?: boolean;
+      }) => {
+        const { row, col, result, isPlayerBoard, keepTurn, gameOver } = data;
+        console.log('Move result received:', data);
+        
+        if (isPlayerBoard) {
+          // Update player board when opponent attacks
+          const newPlayerBoard = [...playerBoard.map(rowArray => [...rowArray])];
+          
+          if (result === 'hit' || result === 'sunk') {
+            newPlayerBoard[row][col] = result === 'sunk' ? CellState.SUNK : CellState.HIT;
+          } else {
+            newPlayerBoard[row][col] = CellState.MISS;
+          }
+          
+          setPlayerBoard(newPlayerBoard);
+          
+          // If all of player's ships are sunk, the game is over
+          if (gameOver) {
+            setWinner('opponent');
+            setGameState(GameState.GAME_OVER);
+            setGameOverDialogOpen(true);
+          }
+        } else {
+          // Update opponent board when player attacks
+          const newOpponentBoard = [...opponentBoard.map(rowArray => [...rowArray])];
+          
+          if (result === 'hit' || result === 'sunk') {
+            newOpponentBoard[row][col] = result === 'sunk' ? CellState.SUNK : CellState.HIT;
+            
+            // Player got a hit, so they should keep their turn unless server explicitly says otherwise
+            if (keepTurn !== false) {
+              console.log('You got a hit! You get another turn!');
+              // Show notification
+              setShowExtraTurnNotice(true);
+              // Hide after 3 seconds
+              setTimeout(() => {
+                setShowExtraTurnNotice(false);
+              }, 3000);
+            }
+          } else {
+            newOpponentBoard[row][col] = CellState.MISS;
+          }
+          
+          setOpponentBoard(newOpponentBoard);
+          
+          // If all opponent's ships are sunk, the game is over
+          if (gameOver) {
+            setWinner('player');
+            setGameState(GameState.GAME_OVER);
+            setGameOverDialogOpen(true);
+          }
+        }
+      });
+      
+      // Listen for game over
+      socketService.on('game_over', (data: { winner: 'player' | 'opponent' }) => {
+        console.log('Game over event received:', data);
+        setWinner(data.winner);
+        setGameState(GameState.GAME_OVER);
+        setGameOverDialogOpen(true);
+      });
+      
+      // Listen for opponent disconnected/reconnected
+      socketService.onOpponentDisconnected(() => {
+        console.log('Opponent disconnected');
+        setIsOpponentConnected(false);
+      });
+      
+      socketService.onOpponentReconnected(() => {
+        console.log('Opponent reconnected');
+        setIsOpponentConnected(true);
+      });
+    };
     
-    // Listen for game over
-    socketService.on('game_over', (data: { winner: 'player' | 'opponent' }) => {
-      setWinner(data.winner);
-      setGameState(GameState.GAME_OVER);
-      setGameOverDialogOpen(true);
-    });
+    // If we have a gameId from the URL, we should join that game
+    if (gameId) {
+      console.log('Joining game with ID:', gameId);
+      
+      // Generate a guest ID if user is not logged in
+      const playerId = user ? user.uid : `guest_${Math.random().toString(36).substring(2, 9)}`;
+      const playerName = user ? (user.displayName || 'Player') : `Guest ${Math.floor(Math.random() * 1000)}`;
+      
+      socketService.joinPrivateGame(gameId, {
+        id: playerId,
+        name: playerName
+      });
+    }
     
-    // Listen for opponent disconnected
-    socketService.onOpponentDisconnected(() => {
-      setIsOpponentConnected(false);
-    });
+    // Now set up all the event listeners
+    setupSocketListeners();
     
-    // Listen for opponent reconnected
-    socketService.onOpponentReconnected(() => {
-      setIsOpponentConnected(true);
-    });
-    
+    // Clean up function to remove all listeners
     return () => {
+      console.log('Game component unmounting, cleaning up listeners');
+      
       // Clean up all listeners when component unmounts
       socketService.off('opponent_data', () => {});
       socketService.off('opponent_ready', () => {});
@@ -184,7 +280,16 @@ const Game = () => {
       socketService.offOpponentReconnected();
       socketService.offGameStarted();
     };
-  }, [gameId, user]);
+  }, [gameId, user, isAnimating]); // Add isAnimating to dependencies
+  
+  // Handle applying delayed turn update after animation completes
+  useEffect(() => {
+    if (pendingTurnUpdate !== null && !isAnimating) {
+      console.log('Applying delayed turn update:', pendingTurnUpdate);
+      setPlayerTurn(pendingTurnUpdate);
+      setPendingTurnUpdate(null);
+    }
+  }, [isAnimating, pendingTurnUpdate]);
   
   // Handle ship placement update
   const handleShipsPlaced = (updatedShips: Ship[]) => {
@@ -219,10 +324,20 @@ const Game = () => {
   
   // Handle player ready
   const handlePlayerReady = () => {
-    console.log('Player ready, submitting ships');
+    console.log('Player ready button clicked, submitting ships');
+    
+    // Update local state
     setPlayerReady(true);
+    
+    // Send ships to server
     socketService.submitShips(ships, playerBoard);
-    // Game state will be updated when server sends the game_started event
+    
+    // Debug check if both players are ready
+    if (opponentReady) {
+      console.log('Both players are ready! Waiting for server to start game...');
+    } else {
+      console.log('Waiting for opponent to be ready...');
+    }
   };
   
   // Handle player attack on opponent's board
@@ -232,13 +347,23 @@ const Game = () => {
       !playerTurn || 
       opponentBoard[row][col] === CellState.HIT || 
       opponentBoard[row][col] === CellState.MISS ||
-      opponentBoard[row][col] === CellState.SUNK
+      opponentBoard[row][col] === CellState.SUNK ||
+      isAnimating // Prevent shooting while animation is playing
     ) {
       return;
     }
     
+    // Start animation
+    setIsAnimating(true);
+    
     // Make the move through the socket
     socketService.makeMove(row, col);
+  };
+  
+  // Handle animation completion
+  const handleAnimationComplete = (row: number, col: number, type: 'hit' | 'miss') => {
+    console.log('Animation completed for shot at', row, col, 'of type', type);
+    setIsAnimating(false);
   };
   
   // Handle leaving the game
@@ -247,8 +372,8 @@ const Game = () => {
   };
 
   // Determine which board to show based on turn
-  const shouldShowPlayerBoard = gameState === GameState.SETUP || !playerTurn;
-  const shouldShowOpponentBoard = gameState === GameState.SETUP || playerTurn;
+  const shouldShowPlayerBoard = gameState === GameState.SETUP || (!playerTurn && !isAnimating);
+  const shouldShowOpponentBoard = gameState === GameState.SETUP || (playerTurn || isAnimating);
   
   // Text to show based on game state
   const getTurnText = () => {
@@ -258,6 +383,8 @@ const Game = () => {
     
     if (gameState === GameState.SETUP) {
       return "Position Your Ships";
+    } else if (gameState === GameState.GAME_OVER) {
+      return winner === 'player' ? "Victory!" : "Defeat!";
     } else if (playerTurn) {
       return "Your Turn - Attack the Enemy!";
     } else {
@@ -272,15 +399,30 @@ const Game = () => {
     
     if (gameState === GameState.SETUP) {
       return "Drag ships to position them. Click the button to rotate.";
+    } else if (gameState === GameState.GAME_OVER) {
+      return winner === 'player' 
+        ? "Congratulations! You've sunk all enemy ships!" 
+        : "Your fleet has been destroyed.";
     } else if (playerTurn) {
-      return "Click on the opponent's board to attack a position";
+      return isAnimating 
+        ? "Wait for your shot to land..." 
+        : "Click on the opponent's board to attack a position";
     } else {
       return "Waiting for opponent to make a move...";
     }
   };
   
+  // Add a useEffect to monitor game state changes
+  useEffect(() => {
+    console.log(`Game state changed to: ${GameState[gameState]}`);
+    
+    if (gameState === GameState.PLAYING) {
+      console.log('Game is now in PLAYING state, both boards should be visible');
+    }
+  }, [gameState]);
+
   return (
-    <Container maxWidth="lg" sx={{ mb: 4 }}>
+    <Container maxWidth="xl" sx={{ mb: 4 }}>
       <Paper 
         elevation={3} 
         sx={{ 
@@ -328,24 +470,36 @@ const Game = () => {
           </Box>
         </Box>
         
+        {/* Game status display */}
+        <Box 
+          sx={{ 
+            textAlign: 'center', 
+            mb: 3, 
+            p: 2, 
+            borderRadius: '10px',
+            backgroundColor: 'rgba(10, 30, 50, 0.7)'
+          }}
+        >
+          <Typography variant="h5" color="primary.main" sx={{ fontWeight: 'bold' }}>
+            {getTurnText()}
+          </Typography>
+          <Typography variant="body1">
+            {getTurnInstructions()}
+          </Typography>
+        </Box>
+        
         {/* Game content with boards and chat */}
         <Grid container spacing={3}>
-          {/* Boards section */}
-          <Grid item xs={12} md={8}>
-            {/* Setup phase - Ship placement */}
-            {gameState === GameState.SETUP && (
-              <ShipPlacementBoard 
-                ships={ships}
-                onShipsPlaced={handleShipsPlaced}
-                onReady={handlePlayerReady}
-                isReady={playerReady}
-              />
-            )}
-            
+          {/* Boards section - expanded width in playing mode */}
+          <Grid item xs={12} md={gameState === GameState.PLAYING ? 9 : 8}>
             {/* Playing phase - show only the active board */}
-            {gameState === GameState.PLAYING && (
-              <Box sx={{ position: 'relative', minHeight: { xs: '400px', md: '600px' } }}>
-                <Fade in={shouldShowPlayerBoard} timeout={500}>
+            {gameState === GameState.PLAYING ? (
+              <Box sx={{ 
+                position: 'relative', 
+                minHeight: { xs: '500px', sm: '600px', md: '700px' },
+                width: '100%'
+              }}>
+                <Fade in={shouldShowPlayerBoard} timeout={800}>
                   <Box sx={{ 
                     position: shouldShowOpponentBoard ? 'absolute' : 'static', 
                     top: 0, 
@@ -353,7 +507,7 @@ const Game = () => {
                     width: '100%',
                     display: shouldShowPlayerBoard ? 'block' : 'none'
                   }}>
-                    <GameBoard 
+                    <CanvasGameBoard 
                       size={10}
                       isPlayerBoard={true}
                       editable={false}
@@ -363,7 +517,7 @@ const Game = () => {
                   </Box>
                 </Fade>
                 
-                <Fade in={shouldShowOpponentBoard} timeout={500}>
+                <Fade in={shouldShowOpponentBoard} timeout={800}>
                   <Box sx={{ 
                     position: shouldShowPlayerBoard ? 'absolute' : 'static',
                     top: 0, 
@@ -371,21 +525,46 @@ const Game = () => {
                     width: '100%',
                     display: shouldShowOpponentBoard ? 'block' : 'none'
                   }}>
-                    <GameBoard 
+                    <CanvasGameBoard 
                       size={10}
                       isPlayerBoard={false}
                       boardState={opponentBoard}
                       onCellClick={handleAttackOpponent}
-                      isActive={playerTurn}
+                      onAnimationComplete={handleAnimationComplete}
+                      isActive={playerTurn && !isAnimating} 
                     />
                   </Box>
                 </Fade>
               </Box>
+            ) : (
+              /* Setup phase - Ship placement */
+              <ShipPlacementBoard 
+                ships={ships}
+                onShipsPlaced={handleShipsPlaced}
+                onReady={handlePlayerReady}
+                isReady={playerReady}
+              />
+            )}
+            
+            {/* Debug button to force game start - only shown when both players are ready */}
+            {gameState === GameState.SETUP && playerReady && opponentReady && (
+              <Box sx={{ mt: 2, textAlign: 'center' }}>
+                <Typography variant="body2" color="error" sx={{ mb: 1 }}>
+                  Game should have started automatically. If stuck, try this:
+                </Typography>
+                <Button 
+                  variant="outlined" 
+                  color="error"
+                  onClick={() => setGameState(GameState.PLAYING)}
+                >
+                  Force Start Game
+                </Button>
+              </Box>
             )}
           </Grid>
           
-          {/* Chat section */}
-          <Grid item xs={12} md={4}>
+          {/* Chat section - narrower in playing mode */}
+          <Grid item xs={12} md={gameState === GameState.PLAYING ? 3 : 4}>
             <GameChat opponentName={opponentName} />
           </Grid>
         </Grid>
@@ -432,6 +611,32 @@ const Game = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {showExtraTurnNotice && (
+        <Box sx={{
+          position: 'fixed',
+          bottom: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: 'success.main',
+          color: 'white',
+          padding: '10px 20px',
+          borderRadius: '20px',
+          fontWeight: 'bold',
+          boxShadow: '0 3px 5px rgba(0,0,0,0.3)',
+          zIndex: 1000,
+          animation: 'fadeIn 0.3s',
+          transition: 'all 0.3s ease',
+          '@keyframes fadeIn': {
+            from: { opacity: 0, transform: 'translate(-50%, 20px)' },
+            to: { opacity: 1, transform: 'translate(-50%, 0)' }
+          }
+        }}>
+          <Typography variant="body1" fontWeight="bold">
+            🎯 Hit! You get another turn!
+          </Typography>
+        </Box>
+      )}
     </Container>
   );
 };
