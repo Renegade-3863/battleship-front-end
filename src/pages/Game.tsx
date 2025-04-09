@@ -18,6 +18,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import GameBoard, { CellState } from '../components/game/GameBoard';
 import GameChat from '../components/game/GameChat';
+import ShipPlacementBoard from '../components/game/ShipPlacementBoard';
 import { getDefaultShipPlacement, Ship } from '../models/Ship';
 import socketService from '../services/socketService';
 import { useAuth } from '../context/AuthContext';
@@ -185,11 +186,16 @@ const Game = () => {
     };
   }, [gameId, user]);
   
-  // Place ships on player board
-  useEffect(() => {
-    const newBoard = [...playerBoard.map(row => [...row])];
+  // Handle ship placement update
+  const handleShipsPlaced = (updatedShips: Ship[]) => {
+    setShips(updatedShips);
     
-    ships.forEach(ship => {
+    // Update player board based on ship positions
+    const newBoard = Array(10)
+      .fill(null)
+      .map(() => Array(10).fill(CellState.EMPTY));
+    
+    updatedShips.forEach(ship => {
       if (ship.position) {
         const { row, col } = ship.position;
         const { orientation, size } = ship;
@@ -209,7 +215,7 @@ const Game = () => {
     });
     
     setPlayerBoard(newBoard);
-  }, [ships]);
+  };
   
   // Handle player ready
   const handlePlayerReady = () => {
@@ -265,7 +271,7 @@ const Game = () => {
     }
     
     if (gameState === GameState.SETUP) {
-      return "Your ships have been positioned automatically. Click on the board to reposition them.";
+      return "Drag ships to position them. Click the button to rotate.";
     } else if (playerTurn) {
       return "Click on the opponent's board to attack a position";
     } else {
@@ -322,74 +328,18 @@ const Game = () => {
           </Box>
         </Box>
         
-        {gameState === GameState.SETUP && (
-          <Box sx={{ mb: 4, textAlign: 'center' }}>
-            <Typography variant="h5" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold' }}>
-              {getTurnText()}
-            </Typography>
-            <Typography variant="body1" paragraph>
-              {getTurnInstructions()}
-            </Typography>
-            
-            <Button 
-              variant="contained" 
-              color="primary"
-              size="large"
-              disabled={playerReady}
-              onClick={handlePlayerReady}
-              sx={{ py: 1.5, px: 4, mt: 2, fontWeight: 'bold' }}
-            >
-              {playerReady ? 'Waiting for opponent...' : 'Ready to Play'}
-            </Button>
-          </Box>
-        )}
-        
-        {gameState === GameState.PLAYING && (
-          <Box sx={{ mb: 3, textAlign: 'center' }}>
-            <Typography 
-              variant="h5" 
-              sx={{ 
-                color: playerTurn ? 'success.main' : 'error.main',
-                fontWeight: 'bold',
-                textShadow: playerTurn 
-                  ? '0 0 10px rgba(76, 175, 80, 0.5)' 
-                  : '0 0 10px rgba(244, 67, 54, 0.5)'
-              }}
-            >
-              {getTurnText()}
-            </Typography>
-            <Typography variant="body1" sx={{ mt: 1 }}>
-              {getTurnInstructions()}
-            </Typography>
-          </Box>
-        )}
-        
         {/* Game content with boards and chat */}
         <Grid container spacing={3}>
           {/* Boards section */}
           <Grid item xs={12} md={8}>
-            {/* Setup phase - show both boards */}
+            {/* Setup phase - Ship placement */}
             {gameState === GameState.SETUP && (
-              <>
-                <Box sx={{ mb: 4 }}>
-                  <GameBoard 
-                    size={10}
-                    isPlayerBoard={true}
-                    editable={!playerReady}
-                    boardState={playerBoard}
-                    isActive={true}
-                  />
-                </Box>
-                
-                <Box>
-                  <GameBoard 
-                    size={10}
-                    isPlayerBoard={false}
-                    boardState={opponentBoard}
-                    isActive={false}
-                  />
-                </Box>
-              </>
+              <ShipPlacementBoard 
+                ships={ships}
+                onShipsPlaced={handleShipsPlaced}
+                onReady={handlePlayerReady}
+                isReady={playerReady}
+              />
             )}
             
             {/* Playing phase - show only the active board */}
