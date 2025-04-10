@@ -31,12 +31,19 @@ interface GameChatProps {
 const GameChat = ({ opponentName = 'Opponent' }: GameChatProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [currentOpponentName, setCurrentOpponentName] = useState(opponentName);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Update local state when prop changes
+  useEffect(() => {
+    console.log('GameChat: opponentName prop changed from', currentOpponentName, 'to', opponentName);
+    setCurrentOpponentName(opponentName);
+  }, [opponentName, currentOpponentName]);
   
   // Initialize socket connection for chat
   useEffect(() => {
     // Listen for incoming messages
-    socketService.on('receive_message', (data: { 
+    const handleReceiveMessage = (data: { 
       text: string; 
       timestamp: string; 
       senderId: string;
@@ -50,11 +57,14 @@ const GameChat = ({ opponentName = 'Opponent' }: GameChatProps) => {
       };
       
       setMessages(prevMessages => [...prevMessages, newMsg]);
-    });
+    };
+
+    // Register the event listener
+    socketService.on('receive_message', handleReceiveMessage);
     
     // Cleanup
     return () => {
-      socketService.off('receive_message', () => {});
+      socketService.off('receive_message', handleReceiveMessage);
     };
   }, []);
   
@@ -62,6 +72,9 @@ const GameChat = ({ opponentName = 'Opponent' }: GameChatProps) => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+  
+  // Debug log when rendering
+  console.log('GameChat rendering with opponentName:', opponentName, 'and currentOpponentName:', currentOpponentName);
   
   // Send message
   const handleSendMessage = () => {
@@ -203,14 +216,14 @@ const GameChat = ({ opponentName = 'Opponent' }: GameChatProps) => {
                     boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
                   }}
                 >
-                  {getInitials(message.sender === 'player' ? 'You' : opponentName)}
+                  {getInitials(message.sender === 'player' ? 'You' : currentOpponentName)}
                 </Avatar>
               </ListItemAvatar>
               <ListItemText 
                 primary={
                   <Box component="span" sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography variant="body2" fontWeight="bold">
-                      {message.sender === 'player' ? 'You' : opponentName}
+                      {message.sender === 'player' ? 'You' : currentOpponentName}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ opacity: 0.7 }}>
                       {formatTime(message.timestamp)}

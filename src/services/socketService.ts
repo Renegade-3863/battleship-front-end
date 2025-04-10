@@ -27,6 +27,19 @@ class SocketService {
     this.socket.on('connect', () => {
       console.log('Socket connected successfully with ID:', this.socket?.id);
       this.connected = true;
+      
+      // Debug: Log all registered event listeners
+      console.log('Current registered listeners:', Object.keys(this.listeners));
+      
+      // Set up event listeners that were registered before connection
+      Object.entries(this.listeners).forEach(([event, callbacks]) => {
+        if (this.socket) {
+          console.log(`Adding ${callbacks.length} listener(s) for event: ${event}`);
+          callbacks.forEach(callback => {
+            this.socket?.on(event, (...args: any[]) => callback(...args));
+          });
+        }
+      });
     });
 
     this.socket.on('connect_error', (error) => {
@@ -136,7 +149,9 @@ class SocketService {
     }
     
     console.log('Joining private game:', gameId, 'with player data:', userData);
-    this.socket.emit('join_private_game', { gameId, userData });
+    this.socket.emit('join_private_game', { gameId, userData }, (response: any) => {
+      console.log('join_private_game acknowledgement received:', response);
+    });
   }
 
   // Submit ship placements
@@ -208,7 +223,14 @@ class SocketService {
   // Send a chat message
   sendMessage(message: string) {
     if (!this.socket) return;
-    this.socket.emit('send_message', { message });
+    
+    // Generate a unique ID for the message to prevent duplicates
+    const messageId = Date.now().toString() + Math.random().toString(36).substring(2, 9);
+    
+    this.socket.emit('send_message', { 
+      message,
+      messageId 
+    });
   }
 
   // Reconnect to a game
@@ -261,15 +283,42 @@ class SocketService {
 
   // Subscribe to events
   on(event: string, callback: Function) {
+    console.log(`Registering listener for event: ${event}`);
+    
     if (!this.listeners[event]) {
       this.listeners[event] = [];
+    }
+    
+    // Check if this callback is already registered to avoid duplicates
+    const isCallbackRegistered = this.listeners[event].some(
+      existingCallback => existingCallback.toString() === callback.toString()
+    );
+    
+    if (isCallbackRegistered) {
+      console.log(`Listener for ${event} already registered, skipping duplicate`);
+      return;
     }
     
     this.listeners[event].push(callback);
     
     // Add listener to socket if connected
     if (this.socket) {
-      this.socket.on(event, (...args: any[]) => callback(...args));
+      console.log(`Socket connected, adding listener for ${event} immediately`);
+      this.socket.on(event, (...args: any[]) => {
+        console.log(`Event ${event} received:`, ...args);
+        
+        // Handle acknowledgement callback
+        if (args.length > 0 && typeof args[args.length - 1] === 'function') {
+          // Last argument is the acknowledgement callback
+          const ack = args.pop();
+          callback(...args);
+          ack('received'); // Send acknowledgement
+        } else {
+          callback(...args);
+        }
+      });
+    } else {
+      console.log(`Socket not connected yet, listener for ${event} will be added after connection`);
     }
   }
 
@@ -277,16 +326,26 @@ class SocketService {
   off(event: string, callback: Function) {
     if (!this.listeners[event]) return;
     
+    // Filter out the specific callback
     this.listeners[event] = this.listeners[event].filter(cb => cb !== callback);
     
+    // If we have a socket connection, remove all listeners for this event and re-add the remaining ones
     if (this.socket) {
+      // First remove all listeners for this event
       this.socket.off(event);
       
-      // Re-add remaining listeners
-      for (const cb of this.listeners[event]) {
-        this.socket.on(event, (...args: any[]) => cb(...args));
+      // Re-add the remaining listeners
+      if (this.listeners[event].length > 0) {
+        this.listeners[event].forEach(cb => {
+          this.socket?.on(event, (...args: any[]) => cb(...args));
+        });
       }
     }
+  }
+
+  // Get the socket instance for direct testing
+  getSocketInstance(): Socket | null {
+    return this.socket;
   }
 
   // Check if socket is connected

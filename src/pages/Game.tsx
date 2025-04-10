@@ -108,7 +108,7 @@ const Game = () => {
   const { gameId } = useParams<{ gameId: string }>();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const { user } = useAuth();
+  const { currentUser, userProfile } = useAuth();
   
   // Game state
   const [gameState, setGameState] = useState<GameState>(GameState.SETUP);
@@ -150,33 +150,21 @@ const Game = () => {
       console.log('Socket already connected');
     }
     
-    // If we have a gameId from the URL, we should join that game
-    if (gameId) {
-      console.log('Joining game with ID:', gameId);
-      
-      // Generate a guest ID if user is not logged in
-      const playerId = user ? user.uid : `guest_${Math.random().toString(36).substring(2, 9)}`;
-      const playerName = user ? (user.displayName || 'Player') : `Guest ${Math.floor(Math.random() * 1000)}`;
-      
-      socketService.joinPrivateGame(gameId, {
-        id: playerId,
-        name: playerName
-      });
-    }
-    
-    // Set up all socket event listeners
+    // Set up all socket event listeners first before joining any game
     const setupSocketListeners = () => {
       console.log('Setting up all socket listeners');
     
       // Listen for opponent data
-      socketService.on('opponent_data', (data: { name: string }) => {
+      const handleOpponentData = (data: { name: string }) => {
         console.log('Received opponent data:', data);
+        console.log('Setting opponent name from:', opponentName, 'to:', data.name);
         setOpponentName(data.name);
         setIsOpponentConnected(true);
-      });
+      };
+      socketService.on('opponent_data', handleOpponentData);
       
       // Listen for opponent ready
-      socketService.on('opponent_ready', () => {
+      const handleOpponentReady = () => {
         console.log('Opponent is ready');
         setOpponentReady(true);
         
@@ -184,7 +172,8 @@ const Game = () => {
         if (playerReady) {
           console.log('Both players are ready! Waiting for server to start game...');
         }
-      });
+      };
+      socketService.on('opponent_ready', handleOpponentReady);
       
       // Listen for game started event - using dedicated handler
       socketService.onGameStarted(() => {
@@ -198,7 +187,7 @@ const Game = () => {
       });
       
       // Listen for turn update
-      socketService.on('turn_update', (data: { playerTurn: boolean; reason?: string }) => {
+      const handleTurnUpdate = (data: { playerTurn: boolean; reason?: string }) => {
         console.log('Turn update received:', data);
         
         if (data.reason) {
@@ -233,10 +222,11 @@ const Game = () => {
           // Otherwise update immediately
           setPlayerTurn(data.playerTurn);
         }
-      });
+      };
+      socketService.on('turn_update', handleTurnUpdate);
       
       // Listen for move result
-      socketService.on('move_result', (data: {
+      const handleMoveResult = (data: {
         row: number;
         col: number;
         result: 'hit' | 'miss' | 'sunk';
@@ -322,15 +312,17 @@ const Game = () => {
             setGameOverDialogOpen(true);
           }
         }
-      });
+      };
+      socketService.on('move_result', handleMoveResult);
       
       // Listen for game over
-      socketService.on('game_over', (data: { winner: 'player' | 'opponent' }) => {
+      const handleGameOver = (data: { winner: 'player' | 'opponent' }) => {
         console.log('Game over event received:', data);
         setWinner(data.winner);
         setGameState(GameState.GAME_OVER);
         setGameOverDialogOpen(true);
-      });
+      };
+      socketService.on('game_over', handleGameOver);
       
       // Listen for opponent disconnected/reconnected
       socketService.onOpponentDisconnected(() => {
@@ -342,15 +334,27 @@ const Game = () => {
         console.log('Opponent reconnected');
         setIsOpponentConnected(true);
       });
+
+      // Return the handler functions to be used in cleanup
+      return {
+        handleOpponentData,
+        handleOpponentReady,
+        handleTurnUpdate,
+        handleMoveResult,
+        handleGameOver
+      };
     };
     
-    // If we have a gameId from the URL, we should join that game
+    // Now set up all the event listeners and store the handlers
+    const handlers = setupSocketListeners();
+    
+    // Now we can join the game after setting up listeners
     if (gameId) {
       console.log('Joining game with ID:', gameId);
       
       // Generate a guest ID if user is not logged in
-      const playerId = user ? user.uid : `guest_${Math.random().toString(36).substring(2, 9)}`;
-      const playerName = user ? (user.displayName || 'Player') : `Guest ${Math.floor(Math.random() * 1000)}`;
+      const playerId = currentUser ? currentUser.uid : `guest_${Math.random().toString(36).substring(2, 9)}`;
+      const playerName = currentUser ? (currentUser.displayName || 'Player') : `Guest ${Math.floor(Math.random() * 1000)}`;
       
       socketService.joinPrivateGame(gameId, {
         id: playerId,
@@ -358,24 +362,21 @@ const Game = () => {
       });
     }
     
-    // Now set up all the event listeners
-    setupSocketListeners();
-    
     // Clean up function to remove all listeners
     return () => {
       console.log('Game component unmounting, cleaning up listeners');
       
-      // Clean up all listeners when component unmounts
-      socketService.off('opponent_data', () => {});
-      socketService.off('opponent_ready', () => {});
-      socketService.off('turn_update', () => {});
-      socketService.off('move_result', () => {});
-      socketService.off('game_over', () => {});
+      // Clean up all listeners when component unmounts with the correct handler references
+      socketService.off('opponent_data', handlers.handleOpponentData);
+      socketService.off('opponent_ready', handlers.handleOpponentReady);
+      socketService.off('turn_update', handlers.handleTurnUpdate);
+      socketService.off('move_result', handlers.handleMoveResult);
+      socketService.off('game_over', handlers.handleGameOver);
       socketService.offOpponentDisconnected();
       socketService.offOpponentReconnected();
       socketService.offGameStarted();
     };
-  }, [gameId, user, isAnimating]); // Add isAnimating to dependencies
+  }, [gameId, currentUser, isAnimating, opponentName]);
   
   // Handle applying delayed turn update after animation completes
   useEffect(() => {
@@ -599,9 +600,9 @@ const Game = () => {
         </Box>
         
         {/* Game content with boards and chat */}
-        <Grid container spacing={3}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: `${gameState === GameState.PLAYING ? '9fr 3fr' : '8fr 4fr'}` }, gap: 3 }}>
           {/* Boards section - expanded width in playing mode */}
-          <Grid item xs={12} md={gameState === GameState.PLAYING ? 9 : 8}>
+          <Box>
             {/* Playing phase - show only the active board */}
             {gameState === GameState.PLAYING ? (
               <Box sx={{ 
@@ -671,13 +672,13 @@ const Game = () => {
                 </Button>
               </Box>
             )}
-          </Grid>
+          </Box>
           
           {/* Chat section - narrower in playing mode */}
-          <Grid item xs={12} md={gameState === GameState.PLAYING ? 3 : 4}>
+          <Box>
             <GameChat opponentName={opponentName} />
-          </Grid>
-        </Grid>
+          </Box>
+        </Box>
       </Paper>
       
       {/* Game Over Dialog */}

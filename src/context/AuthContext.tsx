@@ -35,7 +35,13 @@ export const useAuth = () => {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   
-  return context;
+  // For backward compatibility with code that uses 'user' instead of 'currentUser'
+  const contextWithUserAlias = {
+    ...context,
+    user: context.currentUser
+  };
+  
+  return contextWithUserAlias;
 };
 
 // AuthProvider component
