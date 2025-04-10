@@ -334,6 +334,15 @@ const Game = () => {
         console.log('Opponent reconnected');
         setIsOpponentConnected(true);
       });
+      
+      // Listen for opponent left game
+      const handleOpponentLeftGame = () => {
+        console.log('Opponent left the game');
+        setIsOpponentConnected(false);
+        // Show alert or notification that opponent left
+        alert('Your opponent has left the game.');
+      };
+      socketService.on('opponent_left_game', handleOpponentLeftGame);
 
       // Return the handler functions to be used in cleanup
       return {
@@ -341,7 +350,8 @@ const Game = () => {
         handleOpponentReady,
         handleTurnUpdate,
         handleMoveResult,
-        handleGameOver
+        handleGameOver,
+        handleOpponentLeftGame
       };
     };
     
@@ -372,6 +382,7 @@ const Game = () => {
       socketService.off('turn_update', handlers.handleTurnUpdate);
       socketService.off('move_result', handlers.handleMoveResult);
       socketService.off('game_over', handlers.handleGameOver);
+      socketService.off('opponent_left_game', handlers.handleOpponentLeftGame);
       socketService.offOpponentDisconnected();
       socketService.offOpponentReconnected();
       socketService.offGameStarted();
@@ -479,7 +490,16 @@ const Game = () => {
   
   // Handle leaving the game
   const handleLeaveGame = () => {
-    navigate('/play');
+    console.log('Leaving game...');
+    
+    // Send leave game event to server
+    socketService.leaveGame();
+    
+    // Force a slight delay before navigation to ensure cleanup happens
+    setTimeout(() => {
+      // Navigate to play page
+      navigate('/play');
+    }, 300);
   };
 
   // Determine which board to show based on turn

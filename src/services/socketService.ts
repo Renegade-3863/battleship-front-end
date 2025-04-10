@@ -233,6 +233,25 @@ class SocketService {
     });
   }
 
+  // Leave the current game
+  leaveGame() {
+    if (!this.socket) return;
+    console.log('Leaving current game...');
+    
+    // Send leave event to server first
+    this.socket.emit('leave_game');
+    
+    // Perform a complete reset of socket connection to ensure clean state
+    console.log('Resetting socket connection...');
+    this.disconnect();
+    
+    // Short delay before reconnecting to ensure server has time to process
+    setTimeout(() => {
+      console.log('Reconnecting socket after game leave...');
+      this.connect();
+    }, 500);
+  }
+
   // Reconnect to a game
   reconnectGame(gameId: string, userId: string) {
     if (!this.socket) this.connect();
