@@ -142,13 +142,66 @@ const Game = () => {
   useEffect(() => {
     console.log('Game component mounted, gameId:', gameId);
     
-    // First, ensure we're connected to the socket
-    if (!socketService.isConnected()) {
-      console.log('Socket not connected, connecting now...');
-      socketService.connect();
-    } else {
-      console.log('Socket already connected');
+    // Check localStorage for navigation force as a fallback
+    const forceNavigate = localStorage.getItem('battleshipForceNavigate');
+    if (forceNavigate) {
+      console.log('Found forced navigation target in localStorage:', forceNavigate);
+      
+      // If we're already on the right page, just clear the storage
+      if (gameId === forceNavigate) {
+        console.log('Already on the correct game page, clearing forced navigation');
+        localStorage.removeItem('battleshipForceNavigate');
+      } 
+      // If we're on the wrong game page or no game page, navigate
+      else if (!gameId || gameId !== forceNavigate) {
+        console.log('Redirecting to the correct game page:', forceNavigate);
+        // Use window.location for a full page refresh to ensure clean state
+        window.location.href = `/game/${forceNavigate}`;
+        return;
+      }
     }
+    
+    // Check localStorage for lastMatchFound as a fallback
+    const lastMatchFound = localStorage.getItem('lastMatchFound');
+    if (lastMatchFound && !gameId) {
+      console.log('No gameId in URL but found lastMatchFound in localStorage:', lastMatchFound);
+      navigate(`/game/${lastMatchFound}`);
+      return;
+    }
+    
+    // Clear lastMatchFound since we've now entered the game
+    if (gameId) {
+      localStorage.removeItem('lastMatchFound');
+    }
+    
+    // First, ensure we're connected to the socket
+    socketService.connect().then(connected => {
+      console.log('Socket connection established:', connected);
+      
+      if (!connected) {
+        console.error('Failed to connect socket, retrying...');
+        setTimeout(() => socketService.connect(), 1000);
+        return;
+      }
+      
+      // Force navigation to the game if we already have a match found
+      if (gameId) {
+        console.log('Game ID present in URL, joining game:', gameId);
+        
+        // Generate a guest ID if user is not logged in
+        const playerId = currentUser ? currentUser.uid : `guest_${Math.random().toString(36).substring(2, 9)}`;
+        const playerName = currentUser ? (currentUser.displayName || 'Player') : `Guest ${Math.floor(Math.random() * 1000)}`;
+        
+        // Join the game with this ID
+        console.log('Joining private game with ID:', gameId);
+        socketService.joinPrivateGame(gameId, {
+          id: playerId,
+          name: playerName
+        });
+      } else {
+        console.error('No game ID found in URL! This should not happen.');
+      }
+    });
     
     // Set up all socket event listeners first before joining any game
     const setupSocketListeners = () => {
@@ -358,20 +411,6 @@ const Game = () => {
     // Now set up all the event listeners and store the handlers
     const handlers = setupSocketListeners();
     
-    // Now we can join the game after setting up listeners
-    if (gameId) {
-      console.log('Joining game with ID:', gameId);
-      
-      // Generate a guest ID if user is not logged in
-      const playerId = currentUser ? currentUser.uid : `guest_${Math.random().toString(36).substring(2, 9)}`;
-      const playerName = currentUser ? (currentUser.displayName || 'Player') : `Guest ${Math.floor(Math.random() * 1000)}`;
-      
-      socketService.joinPrivateGame(gameId, {
-        id: playerId,
-        name: playerName
-      });
-    }
-    
     // Clean up function to remove all listeners
     return () => {
       console.log('Game component unmounting, cleaning up listeners');
@@ -458,8 +497,7 @@ const Game = () => {
       !playerTurn || 
       opponentBoard[row][col] === CellState.HIT || 
       opponentBoard[row][col] === CellState.MISS ||
-      opponentBoard[row][col] === CellState.SUNK ||
-      isAnimating // Prevent shooting while animation is playing
+      opponentBoard[row][col] === CellState.SUNK
     ) {
       console.log('Attack rejected due to conditions not met');
       return;

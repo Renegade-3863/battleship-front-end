@@ -36,19 +36,42 @@ const Play = () => {
   
   useEffect(() => {
     // Make sure socket is connected
-    if (!socketService.isConnected()) {
-      socketService.connect();
-    }
+    socketService.connect().then(connected => {
+      console.log('Socket connected status on Play page mount:', connected);
+      
+      // If not connected, try again after a short delay
+      if (!connected) {
+        setTimeout(() => {
+          console.log('Retrying socket connection...');
+          socketService.connect();
+        }, 1000);
+      }
+    });
 
     // Listen for match found event
     socketService.onMatchFound((gameId) => {
       console.log('Match found! Navigating to game:', gameId);
       setMatchmakingActive(false);
       
+      // Store the game ID in localStorage as a fallback mechanism
+      localStorage.setItem('lastMatchFound', gameId);
+      
       // Use a small timeout to ensure the state update happens before navigation
       setTimeout(() => {
+        console.log('Navigating to game page for gameId:', gameId);
+        
+        // Try React Router navigation first
         navigate(`/game/${gameId}`);
-      }, 100);
+        
+        // Fallback: Add a check to see if navigation succeeded after a short delay
+        setTimeout(() => {
+          // If we're still on the Play page after navigation, use window.location as fallback
+          if (window.location.pathname.includes('/play')) {
+            console.log('React Router navigation may have failed, using direct location change');
+            window.location.href = `/game/${gameId}`;
+          }
+        }, 500);
+      }, 300);
     });
     
     // Listen for no players found event
@@ -59,6 +82,9 @@ const Play = () => {
     });
     
     return () => {
+      // Clear the last match found when leaving the play page
+      socketService.clearLastMatchFound();
+      
       // Cleanup listeners
       socketService.offMatchFound();
       socketService.offNoPlayersFound();

@@ -11,44 +11,68 @@ class SocketService {
   private listeners: Record<string, Function[]> = {};
   private connected = false;
 
+  // Track the last match found for retry purposes
+  private lastMatchFound: string | null = null;
+  private matchFoundCallback: ((gameId: string) => void) | null = null;
+
   // Connect to the Socket.IO server
-  connect() {
-    if (this.socket) {
-      console.log('Socket already connected');
-      return;
-    }
-    
-    console.log('Connecting to Socket.io server at:', SOCKET_SERVER_URL);
-    this.socket = io(SOCKET_SERVER_URL, {
-      transports: ['websocket', 'polling'],
-      autoConnect: true,
-    });
-
-    this.socket.on('connect', () => {
-      console.log('Socket connected successfully with ID:', this.socket?.id);
-      this.connected = true;
+  connect(): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (this.socket && this.connected) {
+        console.log('Socket already connected');
+        resolve(true);
+        return;
+      }
       
-      // Debug: Log all registered event listeners
-      console.log('Current registered listeners:', Object.keys(this.listeners));
+      // If we have a socket but it's not connected, disconnect first
+      if (this.socket) {
+        this.socket.disconnect();
+        this.socket = null;
+      }
       
-      // Set up event listeners that were registered before connection
-      Object.entries(this.listeners).forEach(([event, callbacks]) => {
-        if (this.socket) {
-          console.log(`Adding ${callbacks.length} listener(s) for event: ${event}`);
-          callbacks.forEach(callback => {
-            this.socket?.on(event, (...args: any[]) => callback(...args));
-          });
-        }
+      console.log('Connecting to Socket.io server at:', SOCKET_SERVER_URL);
+      this.socket = io(SOCKET_SERVER_URL, {
+        transports: ['websocket', 'polling'],
+        autoConnect: true,
       });
-    });
 
-    this.socket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
-    });
+      this.socket.on('connect', () => {
+        console.log('Socket connected successfully with ID:', this.socket?.id);
+        this.connected = true;
+        
+        // Debug: Log all registered event listeners
+        console.log('Current registered listeners:', Object.keys(this.listeners));
+        
+        // Set up event listeners that were registered before connection
+        Object.entries(this.listeners).forEach(([event, callbacks]) => {
+          if (this.socket) {
+            console.log(`Adding ${callbacks.length} listener(s) for event: ${event}`);
+            callbacks.forEach(callback => {
+              this.socket?.on(event, (...args: any[]) => callback(...args));
+            });
+          }
+        });
+        
+        resolve(true);
+      });
 
-    this.socket.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
-      this.connected = false;
+      this.socket.on('connect_error', (error) => {
+        console.error('Socket connection error:', error);
+        resolve(false);
+      });
+
+      this.socket.on('disconnect', (reason) => {
+        console.log('Socket disconnected:', reason);
+        this.connected = false;
+      });
+      
+      // Set a timeout in case connection takes too long
+      setTimeout(() => {
+        if (!this.connected) {
+          console.error('Socket connection timeout');
+          resolve(false);
+        }
+      }, 5000);
     });
   }
 
@@ -65,8 +89,18 @@ class SocketService {
 
   // Join the matchmaking queue
   joinMatchmaking(userData: { id: string; name: string; humanOnly?: boolean }) {
-    if (!this.socket) {
-      console.error('Cannot join matchmaking: Socket connection not established');
+    if (!this.socket || !this.connected) {
+      console.log('Socket not connected when trying to join matchmaking. Connecting first...');
+      
+      // Connect first, then join when connected
+      this.connect().then(connected => {
+        if (connected) {
+          console.log('Socket now connected, joining matchmaking queue with player data:', userData);
+          this.socket?.emit('join_matchmaking', userData);
+        } else {
+          console.error('Failed to connect socket for matchmaking');
+        }
+      });
       return;
     }
     
@@ -83,16 +117,76 @@ class SocketService {
   // Listen for match found event
   onMatchFound(callback: (gameId: string) => void) {
     console.log('Setting up match_found listener');
+    console.log('Current socket status:', this.connected, 'Socket ID:', this.socket?.id);
+    
+    // Store callback for potential retries
+    this.matchFoundCallback = callback;
+    
     // Remove any existing listeners first to avoid duplicates
     if (this.socket) {
+      console.log('Removing existing match_found listener from socket');
       this.socket.off('match_found');
     }
     
     // Add the new listener
     this.on('match_found', (gameId) => {
       console.log('Match found event received with gameId:', gameId);
-      callback(gameId);
+      this.lastMatchFound = gameId;
+      this.processMatchFound(gameId);
     });
+    
+    // If we already have a match waiting, process it immediately
+    if (this.lastMatchFound) {
+      console.log('Processing stored match found with gameId:', this.lastMatchFound);
+      this.processMatchFound(this.lastMatchFound);
+    }
+  }
+  
+  // Process match found event
+  private processMatchFound(gameId: string) {
+    if (!this.matchFoundCallback) {
+      console.error('No match found callback registered');
+      
+      // Even if no callback is registered, we still need to handle the match
+      console.log('No callback registered, but match found. Storing in localStorage and forcing navigation.');
+      localStorage.setItem('battleshipForceNavigate', gameId);
+      
+      // If we're not already on the game page, redirect
+      if (!window.location.pathname.includes(`/game/${gameId}`)) {
+        window.location.href = `/game/${gameId}`;
+      }
+      
+      return;
+    }
+    
+    // Call callback with gameId
+    try {
+      this.matchFoundCallback(gameId);
+      console.log('Successfully processed match_found for gameId:', gameId);
+      
+      // Also store in localStorage as a backup
+      localStorage.setItem('battleshipForceNavigate', gameId);
+      
+      // Set a timeout to check if we've navigated
+      setTimeout(() => {
+        // If we're not on a game page for this game ID, force navigation
+        if (!window.location.pathname.includes(`/game/${gameId}`)) {
+          console.log('Navigation check failed, forcing direct navigation');
+          window.location.href = `/game/${gameId}`;
+        }
+      }, 1000);
+    } catch (err) {
+      console.error('Error processing match_found:', err);
+      
+      // Even if the callback fails, try a direct navigation
+      window.location.href = `/game/${gameId}`;
+    }
+  }
+
+  // Clear last match found - call this when navigating away from the match
+  clearLastMatchFound() {
+    console.log('Clearing last match found');
+    this.lastMatchFound = null;
   }
 
   // Remove match found listener
@@ -143,8 +237,20 @@ class SocketService {
 
   // Join a private game
   joinPrivateGame(gameId: string, userData: { id: string; name: string }) {
-    if (!this.socket) {
-      console.error('Cannot join private game: Socket connection not established');
+    if (!this.socket || !this.connected) {
+      console.log('Socket not connected when trying to join private game. Connecting first...');
+      
+      // Connect first, then join when connected
+      this.connect().then(connected => {
+        if (connected) {
+          console.log('Socket now connected, joining private game:', gameId, 'with player data:', userData);
+          this.socket?.emit('join_private_game', { gameId, userData }, (response: any) => {
+            console.log('join_private_game acknowledgement received:', response);
+          });
+        } else {
+          console.error('Failed to connect socket for private game');
+        }
+      });
       return;
     }
     

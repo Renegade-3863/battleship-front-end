@@ -165,7 +165,7 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
               col,
               type: (newState === CellState.HIT || newState === CellState.SUNK) ? 'hit' : 'miss',
               startTime: p5Ref.current.millis(),
-              duration: 2000 // 2 second animation
+              duration: 2000 // 200 millisecond animation instead of 2000
             };
             
             setActiveAnimations(prev => [...prev, newAnimation]);
@@ -1087,12 +1087,11 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
     p5.ellipse(centerX, centerY, outerRadius);
     
     // Draw the final hit marker immediately for better feedback
-    if (progress > 0.3) { // Start showing the hit marker early in the animation
-      const fadeInProgress = progress < 0.7 ? (progress - 0.3) / 0.4 : 1;
-      p5.fill(211, 47, 47, 255 * fadeInProgress);
-      p5.noStroke();
-      p5.ellipse(centerX, centerY, cellSize * 0.7);
-    }
+    // Start showing the hit marker early in the animation
+    const fadeInProgress = progress < 0.7 ? (progress - 0.3) / 0.4 : 1;
+    p5.fill(211, 47, 47, 255 * Math.max(0.5, fadeInProgress)); // Make it visible immediately
+    p5.noStroke();
+    p5.ellipse(centerX, centerY, cellSize * 0.7);
     
     // Explosion particles
     const particleCount = 12;
@@ -1115,42 +1114,35 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
     const centerX = x + cellSize / 2;
     const centerY = y + cellSize / 2;
     
-    // Splash animation for misses
-    const maxRadius = cellSize * 1.2;
-    const splashRadius = maxRadius * progress;
+    // Calculate ripple effect
+    const maxRadius = cellSize * 0.9;
+    const ripple1 = maxRadius * progress;
+    const ripple2 = maxRadius * Math.max(0, progress - 0.2) * 1.25;
+    const ripple3 = maxRadius * Math.max(0, progress - 0.4) * 1.5;
     
-    // Splash effect gets stronger in the middle of the animation
-    const splashIntensity = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
+    // Draw miss marker (white dot) immediately
+    p5.fill(255, 255, 255, 255 * Math.max(0.5, 1 - progress));
+    p5.noStroke();
+    p5.ellipse(centerX, centerY, cellSize * 0.5);
     
-    // Main splash circle
+    // Draw ripples
     p5.noFill();
-    p5.stroke(255, 255, 255, 255 * splashIntensity);
-    p5.strokeWeight(2);
-    p5.ellipse(centerX, centerY, splashRadius);
+    p5.stroke(255, 255, 255, 255 * (1 - progress));
     
-    // Inner splash circles
-    p5.stroke(200, 225, 255, 200 * splashIntensity);
-    p5.ellipse(centerX, centerY, splashRadius * 0.7);
-    p5.ellipse(centerX, centerY, splashRadius * 0.4);
+    // First ripple
+    p5.strokeWeight(4 * (1 - progress));
+    p5.ellipse(centerX, centerY, ripple1);
     
-    // Draw the final miss marker earlier in the animation
-    if (progress > 0.5) {
-      const fadeInProgress = progress < 0.9 ? (progress - 0.5) / 0.4 : 1;
-      p5.fill(224, 224, 224, 255 * fadeInProgress);
-      p5.noStroke();
-      p5.ellipse(centerX, centerY, cellSize * 0.7);
+    // Second ripple
+    if (progress > 0.2) {
+      p5.strokeWeight(3 * (1 - progress));
+      p5.ellipse(centerX, centerY, ripple2);
     }
     
-    // Water droplets
-    const dropletCount = 8;
-    p5.fill(200, 225, 255, 200 * splashIntensity);
-    
-    for (let i = 0; i < dropletCount; i++) {
-      const angle = (i / dropletCount) * p5.TWO_PI;
-      const distance = splashRadius * 0.6;
-      const dropletX = centerX + p5.cos(angle) * distance;
-      const dropletY = centerY + p5.sin(angle) * distance - (cellSize * 0.5 * progress);
-      p5.ellipse(dropletX, dropletY, cellSize * 0.15 * (1 - progress));
+    // Third ripple
+    if (progress > 0.4) {
+      p5.strokeWeight(2 * (1 - progress));
+      p5.ellipse(centerX, centerY, ripple3);
     }
   };
   
