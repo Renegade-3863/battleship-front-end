@@ -768,8 +768,14 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
         p5.drawingContext.shadowBlur = 0;
         
         // Calculate grid position
-        const gridX = Math.floor((mouseX - 40) / cellSize);
-        const gridY = Math.floor((mouseY - 40) / cellSize);
+        // const gridX = mouseX - ship.position.col;
+        // const gridY = mouseY - ship.position.row;
+        // const gridX = Math.floor((mouseX - 40) / cellSize);
+        // const gridY = Math.floor((mouseY - 40) / cellSize);
+        const gridX = Math.floor((mouseX-dragOffset.x-40) / cellSize);
+        const gridY = Math.floor((mouseY-dragOffset.y-40) / cellSize);
+
+        // const gridY = mouseY-dragOffset.y;
         
         // Preview placement (show in red if invalid)
         if (gridX >= 0 && gridX < size && gridY >= 0 && gridY < size) {
@@ -783,7 +789,7 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
             }
           } else {
             for (let i = 0; i < ship.size && gridY + i < size; i++) {
-              p5.rect(40 + gridX * cellSize, 40 + (gridY + i) * cellSize, cellSize, cellSize);
+              p5.rect(gridX, gridY + i * cellSize, cellSize, cellSize);
             }
           }
         }
@@ -966,8 +972,8 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
       const mouseY = p5.mouseY;
       
       // Calculate grid position
-      const gridX = Math.floor((mouseX - 40) / cellSize);
-      const gridY = Math.floor((mouseY - 40) / cellSize);
+      const gridX = Math.floor((mouseX-dragOffset.x-40) / cellSize);
+      const gridY = Math.floor((mouseY-dragOffset.y-40) / cellSize);
       
       // Update ship position if valid
       if (gridX >= 0 && gridX < size && gridY >= 0 && gridY < size) {
