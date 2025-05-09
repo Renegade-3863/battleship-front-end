@@ -175,138 +175,65 @@ const Play = () => {
           Play Battleship
         </Typography>
         
-        <Grid container spacing={6} sx={{ mt: 2 }}>
-          {/* Matchmaking Section */}
-          <Grid item xs={12} md={6}>
-            <Box sx={{ textAlign: 'center', height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h5" gutterBottom>
-                Matchmaking
-              </Typography>
-              <Typography variant="body1" sx={{ mb: 2 }}>
-                Play against a random opponent with similar skill level
-              </Typography>
-              
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={humanOnlyMode}
-                    onChange={(e) => setHumanOnlyMode(e.target.checked)}
-                    color="primary"
-                    disabled={matchmakingActive}
-                  />
-                }
-                label="Human opponents only"
-                sx={{ mb: 2, justifyContent: 'center' }}
-              />
-              
-              {!user && humanOnlyMode && (
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  Note: For the best experience with human opponents, consider <Button size="small" color="primary" onClick={() => navigate('/login')}>logging in</Button>
-                </Alert>
-              )}
-              
-              {noPlayersFound && (
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  No human players found. Try again or disable "Human only" option.
-                </Alert>
-              )}
-              
-              {matchmakingActive ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexGrow: 1, justifyContent: 'center' }}>
-                  <CircularProgress size={60} sx={{ mb: 3 }} />
-                  <Typography variant="body1" gutterBottom>
-                    Searching for {humanOnlyMode ? 'human ' : ''}opponent...
-                  </Typography>
-                  <Button 
-                    variant="outlined" 
-                    color="primary"
-                    onClick={handleCancelMatchmaking}
-                    sx={{ mt: 2 }}
-                  >
-                    Cancel
-                  </Button>
-                </Box>
-              ) : (
-                <Box sx={{ mt: 'auto' }}>
-                  <Button 
-                    variant="contained" 
-                    color="primary"
-                    size="large"
-                    fullWidth
-                    onClick={handleStartMatchmaking}
-                    sx={{ py: 1.5 }}
-                  >
-                    Find Match
-                  </Button>
-                </Box>
-              )}
-            </Box>
-          </Grid>
-          
-          {/* Private Game Section */}
-          <Grid item xs={12} md={6}>
-            <Box sx={{ textAlign: 'center', height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h5" gutterBottom>
-                Private Game
-              </Typography>
-              <Typography variant="body1" sx={{ mb: 3 }}>
-                Create a game and invite a friend, or join a friend's game
-              </Typography>
-              
-              <Button 
-                variant="contained" 
-                color="primary"
-                size="large"
-                onClick={handleCreatePrivateGame}
-                sx={{ py: 1.5, mb: 3 }}
-                disabled={matchmakingActive}
-              >
-                Create Private Game
-              </Button>
-              
-              <Typography variant="body1" sx={{ mt: 1 }}>
-                Or join with game ID:
-              </Typography>
-              
-              <Box sx={{ display: 'flex', mt: 1, gap: 1 }}>
-                <TextField
-                  placeholder="Enter game ID"
-                  variant="outlined"
-                  fullWidth
-                  value={privateGameId}
-                  onChange={(e) => {
-                    setPrivateGameId(e.target.value);
-                    setJoinError(null);
-                  }}
-                  disabled={matchmakingActive}
-                  error={!!joinError}
-                  helperText={joinError}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.3)',
-                      },
-                    },
-                    '& .MuiInputLabel-root': {
-                      color: 'rgba(255, 255, 255, 0.7)',
-                    },
-                    '& .MuiOutlinedInput-input': {
-                      color: 'white',
-                    },
-                  }}
-                />
-                <Button 
-                  variant="outlined" 
-                  color="primary"
-                  onClick={() => handleJoinPrivateGame()}
-                  disabled={matchmakingActive}
-                >
-                  Join
-                </Button>
-              </Box>
-            </Box>
-          </Grid>
-        </Grid>
+        <Grid item xs={12} md={6}>
+  <Box sx={{ 
+    textAlign: 'center', 
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center'  // 新增垂直居中
+  }}>
+    <Typography variant="h5" gutterBottom>
+      Matchmaking
+    </Typography>
+    <Typography variant="body1" sx={{ mb: 2 }}>
+      Play against a random opponent with similar skill level
+    </Typography>
+
+    {/* 其他组件... */}
+
+    {matchmakingActive ? (
+      // 已保持原有居中样式
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <CircularProgress size={60} sx={{ mb: 3 }} />
+        <Typography variant="body1" gutterBottom>
+          Searching for {humanOnlyMode ? 'human ' : ''}opponent...
+        </Typography>
+        <Button 
+          variant="outlined" 
+          color="primary"
+          onClick={handleCancelMatchmaking}
+          sx={{ mt: 2 }}
+        >
+          Cancel
+        </Button>
+      </Box>
+    ) : (
+      // 修改按钮容器样式
+      <Box sx={{ 
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',  // 水平居中
+        justifyContent: 'center', // 垂直居中
+        mt: 2  // 保持适当顶部间距
+      }}>
+        <Button 
+          variant="contained" 
+          color="primary"
+          size="large"
+          fullWidth
+          onClick={handleStartMatchmaking}
+          sx={{ 
+            py: 1.5,
+            maxWidth: 300  // 控制按钮最大宽度
+          }}
+        >
+          Find Match
+        </Button>
+      </Box>
+    )}
+  </Box>
+</Grid>
         
         <Box sx={{ mt: 4, textAlign: 'center' }}>
           <Button 

@@ -771,13 +771,13 @@ const Game = () => {
           >
             Return to Lobby
           </Button>
-          <Button 
+          {/* <Button 
             onClick={() => setGameOverDialogOpen(false)} 
             color="primary" 
             variant="contained"
           >
             View Final Board
-          </Button>
+          </Button> */}
         </DialogActions>
       </Dialog>
 

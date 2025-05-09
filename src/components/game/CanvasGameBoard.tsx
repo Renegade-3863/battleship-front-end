@@ -3,6 +3,7 @@ import Sketch from "react-p5";
 import p5Types from "p5";
 import { Ship, Orientation } from '../../models/Ship';
 import { CellState } from './GameBoard';
+// import "p5/lib/addons/p5.sound";
 
 // Sound assets URLs
 const SOUNDS = {
@@ -789,7 +790,7 @@ const CanvasGameBoard: React.FC<CanvasGameBoardProps> = ({
             }
           } else {
             for (let i = 0; i < ship.size && gridY + i < size; i++) {
-              p5.rect(gridX, gridY + i * cellSize, cellSize, cellSize);
+              p5.rect(40 + gridX * cellSize, 40 + (gridY + i) * cellSize, cellSize, cellSize);
             }
           }
         }

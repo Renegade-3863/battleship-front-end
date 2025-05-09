@@ -70,7 +70,7 @@ const Home = () => {
               </Box>
             </Grid>
             
-            <Grid item xs={12} md={4}>
+            {/* <Grid item xs={12} md={4}>
               <Box sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <Typography variant="h6" gutterBottom>
                   Check your stats
@@ -89,7 +89,7 @@ const Home = () => {
                   Profile
                 </Button>
               </Box>
-            </Grid>
+            </Grid> */}
           </Grid>
         ) : (
           <Box sx={{ mt: 6, display: 'flex', flexDirection: 'column', gap: 3, maxWidth: 300, mx: 'auto' }}>

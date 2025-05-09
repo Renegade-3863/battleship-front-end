@@ -10,6 +10,7 @@ import {
   StepLabel,
   StepContent
 } from '@mui/material';
+import React from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -38,11 +39,6 @@ const tutorialSteps = [
     label: 'Winning the Game',
     description: `The first player to sink all of their opponent's ships wins the game. A ship is sunk when all of its squares have been hit.`,
     image: '/tutorial/winning.png'
-  },
-  {
-    label: 'Additional Features',
-    description: `Our Battleship game includes chat functionality to communicate with your opponent, ELO-based matchmaking for fair games, and the ability to create private games by sharing a link with friends.`,
-    image: '/tutorial/features.png'
   },
 ];
 
